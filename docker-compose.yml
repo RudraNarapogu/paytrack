@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: paytrack_db
+    environment:
+      POSTGRES_DB: paytrack_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Rudra@56
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - paytrack_net
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: paytrack_backend
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:Rudra@56@db:5432/paytrack_dev
+      JWT_SECRET: fbc5a708c3fea5afdd668e9fe67db422c0f0ef70bf49022a4c5dd5ec23b427d4
+      JWT_REFRESH_SECRET: f57039ebc8b9c2811c4980a8056727c6a017d80072d124eb0ad8869ac419238c
+      CORS_ORIGIN: "*"
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - paytrack_net
+
+  # Web Dashboard
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: paytrack_web
+    environment:
+      VITE_API_URL: http://localhost:3000/api/v1
+    ports:
+      - "3001:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    networks:
+      - paytrack_net
+
+volumes:
+  postgres_data:
+
+
+networks:
+  paytrack_net:
+    driver: bridge

@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: paytrack_postgres
+    environment:
+      POSTGRES_DB: paytrack_dev
+      POSTGRES_USER: paytrack
+      POSTGRES_PASSWORD: paytrack_dev_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paytrack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - paytrack_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: paytrack_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - paytrack_network
+
+  # Backend API (NestJS)
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: paytrack_backend
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: paytrack_dev
+      DATABASE_USER: paytrack
+      DATABASE_PASSWORD: paytrack_dev_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: dev_jwt_secret_change_in_production
+      JWT_EXPIRATION: 900
+      JWT_REFRESH_EXPIRATION: 604800
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+      - /app/node_modules
+    command: npm run start:dev
+    networks:
+      - paytrack_network
+
+  # Web Dashboard (React)
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile.dev
+    container_name: paytrack_web
+    environment:
+      VITE_API_URL: http://localhost:3000/v1
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ../web:/app
+      - /app/node_modules
+    command: npm run dev
+    networks:
+      - paytrack_network
+
+  # PgAdmin (Database Management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: paytrack_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@paytrack.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - paytrack_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  paytrack_network:
+    driver: bridge
